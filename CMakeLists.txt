@@ -13,10 +13,23 @@ catkin_package(
 )
 
 include_directories(
+  include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 catkin_install_python(PROGRAMS
   src/slda.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# test rosnode NODE
+add_executable(test_publisher_slda test/publisher.cpp)
+target_link_libraries(test_publisher_slda 
+  ${catkin_LIBRARIES}
+)
+
+add_executable(test_logger_slda test/logger_fbcsp.cpp)
+target_link_libraries(test_logger_slda 
+  ${catkin_LIBRARIES}
 )

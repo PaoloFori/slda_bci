@@ -1,13 +1,14 @@
 <launch>
-    <!-- Arguments -->
-    <arg name="path_slda_model" default="$(find slda_bci)/models/slda_model.pkl" />
+    <!-- SLDA -->
+    <!-- arguments -->
+    <arg name="path_slda_model" default="$(find slda_bci)/models/slda_test.yaml" />
     <arg name="topic_sub" default="/eeg_fbcsp" />
-    <arg name="slda_paradigm" default="cvsa" />
+    <arg name="paradigm" default="mi" />
 
-    <!-- sLDA Python Node -->
+    <!-- node -->
     <node pkg="slda_bci" type="slda.py" name="slda_node" output="screen">
         <param name="path_slda_model" value="$(arg path_slda_model)" />
         <param name="topic_sub" value="$(arg topic_sub)" />
-        <param name="slda_paradigm" value="$(arg slda_paradigm)" />
+        <param name="paradigm" value="$(arg paradigm)" />
     </node>
 </launch>

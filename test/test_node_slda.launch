@@ -1,0 +1,30 @@
+<launch>
+
+    <!-- SLDA -->
+    <!-- arguments -->
+    <arg name="path_slda_model" default="$(find slda_bci)/models/slda_test.yaml" />
+    <arg name="topic_sub" default="/eeg_fbcsp" />
+    <arg name="paradigm" default="mi" />
+
+    <!-- node -->
+    <node pkg="slda_bci" type="slda.py" name="slda_node" output="screen">
+        <param name="path_slda_model" value="$(arg path_slda_model)" />
+        <param name="topic_sub" value="$(arg topic_sub)" />
+        <param name="paradigm" value="$(arg paradigm)" />
+    </node>
+
+
+    <!-- TEST NODES -->
+    <!-- logger node -->
+    <node pkg="slda_bci" type="test_logger_slda" name="test_subscriber" output="screen">
+        <param name="paradigm" value="$(arg paradigm)" />
+        <param name="output_filename" value="$(find slda_bci)/test/slda_output.csv"/>
+    </node>
+    
+    <!-- publisher node -->
+    <node pkg="slda_bci" type="test_publisher_slda" name="test_publisher" output="screen">
+        <param name="csv_file" value="$(find slda_bci)/test/fbcsp_processing.csv"/>
+        <param name="sample_rate" value="20"/> 
+    </node>
+
+</launch>
