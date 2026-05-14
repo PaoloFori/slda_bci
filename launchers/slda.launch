@@ -6,9 +6,10 @@
     <arg name="paradigm" default="mi" />
 
     <!-- node -->
+    <!-- sLDA node -->
     <node pkg="slda_bci" type="slda.py" name="slda_node" output="screen">
-        <param name="path_slda_model" value="$(arg path_slda_model)" />
-        <param name="topic_sub" value="$(arg topic_sub)" />
-        <param name="paradigm" value="$(arg paradigm)" />
+        <param name="path_slda_model" value="$(arg path_slda_model)"/>
+        <param name="topic_sub"       value="/$(arg paradigm)/eeg_fbcsp"/>
+        <param name="paradigm"        value="$(arg paradigm)"/>
     </node>
 </launch>

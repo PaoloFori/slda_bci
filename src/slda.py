@@ -57,17 +57,18 @@ class Slda:
             return False
             
         try:
-            self.clf = LinearDiscriminantAnalysis()
+            self.clf = LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto')
             self.clf.coef_ = np.array(save_dict['slda_weights'])
             self.clf.intercept_ = np.array(save_dict['slda_intercept'])
             self.clf.classes_ = np.array(save_dict['classes'])
-            
+
             self.classes_ = self.clf.classes_
             self.nclasses = len(self.classes_)
-            
+
             self.bands = save_dict['bands']
-            
+
             self.nfeatures = len(save_dict['bands']) * len(save_dict['selected_components_indices'])
+            self.clf.n_features_in_ = self.nfeatures
             
         except Exception as e:
             rospy.logerr(f"[{self.slda_name}] Error parsing the sLDA's parameter: {e}")
@@ -105,9 +106,13 @@ class Slda:
             ordered_features.extend(band_features)
             
         ordered_features = np.array(ordered_features)
-        
+
         if len(ordered_features) != self.nfeatures:
             rospy.logwarn_throttle(1.0, f"[{self.slda_name}] Expected {self.nfeatures} features, got {len(ordered_features)}.")
+            return None
+
+        if np.any(ordered_features <= 0):
+            rospy.logwarn_throttle(1.0, f"[{self.slda_name}] Non-positive features (ring buffer not full or invalid frame), skipping.")
             return None
 
         dfet = np.log(ordered_features)

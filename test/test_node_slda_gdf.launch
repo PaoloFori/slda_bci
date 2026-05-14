@@ -1,0 +1,52 @@
+<launch>
+
+    <arg name="data_dir"        default="/home/paolo/bci_vr_ws/test_node_data"/>
+    <arg name="out_dir"         default="$(arg data_dir)/slda_bci"/>
+    <arg name="gdf_file"        default="$(arg data_dir)/prova32ch.gdf"/>
+    <arg name="samplerate"      default="512"/>
+    <arg name="framerate"       default="16"/>
+    <arg name="paradigm"        default="mi"/>
+    <arg name="filter_order"    default="4"/>
+    <arg name="filters_band"    default="8.0 10.0; 10.0 12.0; 12.0 14.0; 8.0 14; 14.0 20.0;"/>
+    <arg name="path_slda_model" default="$(find slda_bci)/models/mi/slda_mi_test.yaml"/>
+
+    <!-- rosneuro_acquisition: replay GDF via eegdev datafile plugin -->
+    <node name="acquisition" pkg="rosneuro_acquisition" type="acquisition" output="screen">
+        <param name="~plugin"     value="rosneuro::EGDDevice"/>
+        <param name="~devarg"     value="$(arg gdf_file)"/>
+        <param name="~samplerate" value="$(arg samplerate)"/>
+        <param name="~framerate"  value="$(arg framerate)"/>
+    </node>
+
+    <!-- FBCSP processing (CAR + LP→HP + ring buffer + CSP) -->
+    <rosparam command="load" file="$(find processing_bci)/cfg/ringbuffer.yaml" subst_value="true"/>
+    <rosparam command="load" file="$(find rosneuro_filters_car)/cfg/car.yaml"/>
+
+    <node name="processing_fbcsp_node" pkg="processing_bci" type="processing_fbcsp_node" output="screen">
+        <param name="nchannels"    value="32"/>
+        <param name="chunkSize"    value="$(eval int(arg('samplerate')) / int(arg('framerate')))"/>
+        <param name="samplerate"   value="$(arg samplerate)"/>
+        <param name="filter_order" value="$(arg filter_order)"/>
+        <param name="run_mode"     value="online"/>
+        <param name="signal_type"  value="eeg"/>
+        <param name="filters_band" value="$(arg filters_band)"/>
+        <param name="do_ica"       value="false"/>
+        <param name="do_car"       value="true"/>
+        <param name="topic_to_pub" value="/$(arg paradigm)/eeg_fbcsp"/>
+        <rosparam command="load" file="$(find processing_bci)/cfg/csp/mi/csp_mi_test.yaml"/>
+    </node>
+
+    <!-- sLDA node -->
+    <node pkg="slda_bci" type="slda.py" name="slda_node" output="screen">
+        <param name="path_slda_model" value="$(arg path_slda_model)"/>
+        <param name="topic_sub"       value="/$(arg paradigm)/eeg_fbcsp"/>
+        <param name="paradigm"        value="$(arg paradigm)"/>
+    </node>
+
+    <!-- Logger: saves softpredict probabilities + first_seq -->
+    <node pkg="slda_bci" type="test_logger_slda" name="test_logger_slda" output="screen">
+        <param name="paradigm"        value="$(arg paradigm)"/>
+        <param name="output_filename" value="$(arg out_dir)/slda_gdf_output.csv"/>
+    </node>
+
+</launch>

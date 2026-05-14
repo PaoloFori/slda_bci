@@ -2,14 +2,17 @@ cmake_minimum_required(VERSION 3.0.2)
 project(slda_bci)
 
 find_package(catkin REQUIRED COMPONENTS
+  roscpp
   rospy
   std_msgs
   processing_bci
   rosneuro_msgs
 )
 
+find_package(Eigen3 REQUIRED)
+
 catkin_package(
-  CATKIN_DEPENDS rospy std_msgs processing_bci rosneuro_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs processing_bci rosneuro_msgs
 )
 
 include_directories(
@@ -23,13 +26,9 @@ catkin_install_python(PROGRAMS
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-# test rosnode NODE
+# Test nodes
 add_executable(test_publisher_slda test/publisher.cpp)
-target_link_libraries(test_publisher_slda 
-  ${catkin_LIBRARIES}
-)
+target_link_libraries(test_publisher_slda ${catkin_LIBRARIES})
 
-add_executable(test_logger_slda test/logger_fbcsp.cpp)
-target_link_libraries(test_logger_slda 
-  ${catkin_LIBRARIES}
-)
+add_executable(test_logger_slda test/logger.cpp)
+target_link_libraries(test_logger_slda ${catkin_LIBRARIES})
