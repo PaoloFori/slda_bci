@@ -70,6 +70,14 @@ class Slda:
             self.nfeatures = len(save_dict['bands']) * len(save_dict['selected_components_indices'])
             self.clf.n_features_in_ = self.nfeatures
             
+            # Safe parsing of Platt calibration parameters (default to standard sigmoid: a=1.0, b=0.0)
+            platt_a_list = save_dict.get('slda_calibrated_weights', [])
+            platt_b_list = save_dict.get('slda_calibrated_intercept', [])
+            self.platt_a = float(platt_a_list[0]) if len(platt_a_list) > 0 else 1.0
+            self.platt_b = float(platt_b_list[0]) if len(platt_b_list) > 0 else 0.0
+            
+            rospy.loginfo(f"[{self.slda_name}] Platt calibration loaded: platt_a={self.platt_a:.3f}, platt_b={self.platt_b:.3f}")
+            
         except Exception as e:
             rospy.logerr(f"[{self.slda_name}] Error parsing the sLDA's parameter: {e}")
             return False
@@ -126,7 +134,14 @@ class Slda:
             return
             
         dfet = dfet.reshape(1, -1)
-        probabilities = self.clf.predict_proba(dfet)[0]
+        
+        # Calculate raw sLDA decision score: score = dfet * weights^T + intercept
+        score = np.dot(dfet, self.clf.coef_.T) + self.clf.intercept_
+        score = float(score[0][0])
+        
+        # Apply Platt calibration sigmoid: P = 1 / (1 + exp(-(platt_a * score + platt_b)))
+        p2 = 1.0 / (1.0 + np.exp(-(self.platt_a * score + self.platt_b)))
+        probabilities = np.array([1.0 - p2, p2])
         
         hard_pred_vector = np.zeros(self.nclasses, dtype=int)
         hard_pred_vector[np.argmax(probabilities)] = 1

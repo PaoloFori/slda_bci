@@ -11,7 +11,10 @@ For each incoming `eeg_fbcsp` frame:
 1. **Feature extraction**: read `data[]` from the message (raw mean power `mean(x²)` per CSP component per band), reorder to match the model's expected band order.
 2. **Log transform**: `log(mean(x²))` — converts power to log-power, matching the training convention.
 3. **Linear discriminant**: `score = w · x + b` where `w` is the LDA weight vector and `b` is the intercept, both loaded from the YAML model.
-4. **Sigmoid**: for binary classification, `p(c₂) = sigmoid(score)`, `p(c₁) = 1 − p(c₂)`.
+4. **Platt Calibration**: Apply unbiased Platt scaling to the raw decision score using parameters `platt_a` and `platt_b` loaded from the model:
+   $$P(c_2) = \frac{1}{1 + e^{-(\text{platt\_a} \cdot \text{score} + \text{platt\_b})}}$$
+   $$P(c_1) = 1 - P(c_2)$$
+   If Platt parameters are not present in the YAML, they default to standard sigmoid scaling (`platt_a = 1.0`, `platt_b = 0.0`).
 5. **Publish** `/{paradigm}/neuroprediction/raw` (`rosneuro_msgs/NeuroOutput`) with `softpredict` = `[p(c₁), p(c₂)]`.
 
 The classifier is reconstructed at startup from `coef_` and `intercept_` stored in the YAML, using `sklearn.discriminant_analysis.LinearDiscriminantAnalysis(solver='lsqr')`.
@@ -34,21 +37,22 @@ sLDACfg:
     subject: S01
     classes: ['769', '770']           # GDF event codes for the two classes
     bands:                            # frequency bands used during training
-      - [8, 10]
-      - [10, 12]
-      - [12, 14]
-      - [8, 14]
-      - [14, 20]
+      - [8, 12]
+      - [12, 16]
+      - [16, 20]
+      - [20, 26]
     selected_channels: [FC5, FC1, C3, CP5, CP1, CP6, CP2, Cz, C4, FC6, FC2]
     selected_components_indices: [0, 1, 2, 3]
     cv_mean_acc: 0.93
     cv_std_acc:  0.02
-    slda_weights:   [[w0, w1, ..., w19]]   # [1 × n_features]
-    slda_intercept: [b]                    # scalar
+    slda_weights:   [[w0, w1, ..., w15]]               # [1 × n_features]
+    slda_intercept: [b]                                # scalar
+    slda_calibrated_weights: [platt_a]                 # Platt scaling weight coefficient
+    slda_calibrated_intercept: [platt_b]               # Platt scaling bias intercept
     csp: /path/to/csp_model.yaml
 ```
 
-The node reads only `classes`, `bands`, `selected_components_indices`, `slda_weights`, and `slda_intercept`. The other fields are metadata saved for traceability.
+The node reads only `classes`, `bands`, `selected_components_indices`, `slda_weights`, `slda_intercept`, `slda_calibrated_weights`, and `slda_calibrated_intercept`. The other fields are metadata saved for traceability.
 
 ---
 
@@ -103,9 +107,12 @@ The notebook trains CSP + sLDA from calibration GDF files and saves models consu
 2. **CAR**: subtract per-sample mean of non-EOG channels (`EOG_ch_names = ['Fp1', 'Fp2']`)
 3. **Bandpass** per band: causal Butterworth order 4, applied as **LP then HP** sequentially — matching `Fbcsp.cpp` `filters_low_[i] → filters_high_[i]`
 4. Extract 1-second sliding windows (step = `CHUNK_SIZE`) during continuous feedback (event 781)
+   - **Trim start alignment**: the first training window starts at `trim_start_s = -0.95 s` relative to event 781 (CF onset), containing exactly 475 samples of cue and 25 samples of feedback. This replicates the exact initial ring buffer transient that the online classifier sees at runtime.
 5. **CSP** (`n_components=4`, `reg='ledoit_wolf'`, `log=True`) on `SELECTED_CHANNELS` subset per band
-6. **Cross-validate** `LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto', priors=[0.5, 0.5])` with `StratifiedGroupKFold(n_splits=5, groups=trials)` — prevents leakage from overlapping windows
-7. Train final model on all data, save CSP yaml + sLDA yaml
+6. **Cross-validate** `LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto', priors=[0.5, 0.5])` with `StratifiedGroupKFold(n_splits=4, groups=trials)` — prevents leakage from overlapping windows.
+7. **Platt Calibration Fitting**: Fit an unbiased 1D Logistic Regression on the out-of-fold CV test scores (`all_scores`) to calculate unbiased calibration coefficients (`platt_a` and `platt_b`) and avoid overfitting.
+8. **Fold Sigma Monitoring**: A critical check is run on the cross-validation fold variance. If the fold standard deviation exceeds 8% (`std_acc > 0.08`), the notebook prints a warning recommending to reduce `N_CSP_COMPONENTS` to `2` to stabilize feature learning and halve feature dimensionality.
+9. Train final model on all data, save CSP yaml + sLDA yaml.
 
 ### Key parameters (top of notebook)
 
@@ -113,7 +120,7 @@ The notebook trains CSP + sLDA from calibration GDF files and saves models consu
 |----------|-------------|----------------|-------------|
 | `FREQ` | 500 | 500 | Sample rate (Hz) |
 | `CHUNK_SIZE` | 25 | 25 | Frame size (samples) |
-| `BANDS` | `[[8,10],[10,12],[12,14],[8,14],[14,20]]` | same | Frequency bands |
+| `BANDS` | `[[8,12], [12,16], [16,20], [20,26]]` | `[[8,12], [10,14], [12,16]]` | Frequency bands (MI: 4 bands, CVSA: 3 bands) |
 | `N_CSP_COMPONENTS` | 4 | 4 | CSP components per band |
 | `EXCLUDE_CHANNELS` | `['Fp1','Fp2']` | same | Excluded from CAR mean |
 | `SELECTED_CHANNELS` | 11 motor cortex channels | 8 occipito-parietal channels | CSP channel subset |
