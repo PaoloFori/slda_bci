@@ -247,13 +247,25 @@ Both test scripts apply the same validation strategy:
 
 ---
 
-## 7. Dependencies
+## 7. Offline simulation (`matlab_simulation`)
+
+The `analysis_bci/matlab_simulation` package replays recorded GDF sessions through the same pipeline. Two files were updated to support the new sLDA features:
+
+**`io/load_slda.m`** — reads `selected_feature_indices` from the YAML and converts the 0-based Python indices to 1-based MATLAB indices. Backwards-compatible: older models without the field work unchanged.
+
+**`classifier/apply_slda.m`** — after `log(features)` and band-order reordering, applies the feature mask (`Xlog(:, selected_feature_indices)`) before multiplying by `slda.weights`. No-op when `selected_feature_indices` is empty.
+
+No changes needed in `main_simulate.m` or `main_evaluate_metrics.m` — the feature selection is transparent to callers.
+
+---
+
+## 8. Dependencies
 
 | Library | Used for |
 |---------|---------|
 | `processing_bci` | `eeg_fbcsp` message type, FBCSP publisher test node |
 | `rosneuro_msgs` | `NeuroOutput` message |
-| `scikit-learn` | `LinearDiscriminantAnalysis` |
+| `scikit-learn` | `LinearDiscriminantAnalysis`, `LogisticRegression` (Platt) |
 | `numpy`, `scipy` | Feature computation, sigmoid |
 | `mne` | GDF loading in training notebook and Python test |
 | `yaml` | Model loading |
