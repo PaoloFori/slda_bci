@@ -68,8 +68,40 @@ class Slda:
             self.bands = save_dict['bands']
 
             self.nfeatures = len(save_dict['bands']) * len(save_dict['selected_components_indices'])
-            self.clf.n_features_in_ = self.nfeatures
-            
+
+            # MIBIF / Fisher feature selection (optional). The notebook stores the
+            # indices into the band-major feature vector that survived feature
+            # selection. The sLDA weights in the yaml are sized accordingly (one
+            # weight per kept index, not per raw feature).
+            sel_raw = save_dict.get('selected_feature_indices', None)
+            if sel_raw is not None and len(sel_raw) > 0:
+                self.selected_feature_indices = np.asarray(sel_raw, dtype=int)
+                if self.selected_feature_indices.max() >= self.nfeatures \
+                        or self.selected_feature_indices.min() < 0:
+                    rospy.logerr(f"[{self.slda_name}] selected_feature_indices out of "
+                                 f"range [0, {self.nfeatures}).")
+                    return False
+                if self.clf.coef_.shape[1] != len(self.selected_feature_indices):
+                    rospy.logerr(f"[{self.slda_name}] weight matrix has "
+                                 f"{self.clf.coef_.shape[1]} cols but "
+                                 f"{len(self.selected_feature_indices)} features were "
+                                 "selected — yaml is inconsistent.")
+                    return False
+                fs_method = save_dict.get('feature_selection_method', '')
+                rospy.loginfo(f"[{self.slda_name}] Feature selection "
+                              f"({fs_method or 'unknown'}): keeping "
+                              f"{len(self.selected_feature_indices)} / {self.nfeatures} "
+                              f"features.")
+            else:
+                self.selected_feature_indices = None
+                if self.clf.coef_.shape[1] != self.nfeatures:
+                    rospy.logerr(f"[{self.slda_name}] weight matrix has "
+                                 f"{self.clf.coef_.shape[1]} cols but expected "
+                                 f"{self.nfeatures}.")
+                    return False
+
+            self.clf.n_features_in_ = self.clf.coef_.shape[1]
+
             # Safe parsing of Platt calibration parameters (default to standard sigmoid: a=1.0, b=0.0)
             platt_a_list = save_dict.get('slda_calibrated_weights', [])
             platt_b_list = save_dict.get('slda_calibrated_intercept', [])
@@ -124,7 +156,11 @@ class Slda:
             return None
 
         dfet = np.log(ordered_features)
-        
+
+        # Apply MIBIF / Fisher feature mask (no-op if all features kept)
+        if self.selected_feature_indices is not None:
+            dfet = dfet[self.selected_feature_indices]
+
         return dfet
 
 
