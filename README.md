@@ -112,7 +112,7 @@ The notebook trains CSP + sLDA from calibration GDF files and saves models consu
 
 1. Load GDF → restrict to EEG channels (drop Status/trigger)
 2. **CAR**: subtract per-sample mean of non-EOG channels (`EOG_ch_names = ['Fp1', 'Fp2']`)
-3. **Bandpass** per band: causal Butterworth order 4, applied as **LP then HP** sequentially — matching `Fbcsp.cpp` `filters_low_[i] → filters_high_[i]`
+3. **Bandpass** per band: causal Butterworth order 4, applied as **LP then HP** sequentially using **`scipy.signal.lfilter` with ba-form coefficients** (not `sosfilt` / SOS form). This matches `Fbcsp.cpp` and `apply_processing.m` exactly. Using `sosfilt` produces different transient behaviour for low normalised cutoffs (e.g. 8 Hz HP at 250 Hz Nyquist = 0.032) and would not match the online pipeline.
 4. Extract 1-second sliding windows (step = `CHUNK_SIZE`) during continuous feedback (event 781)
    - **Trim start alignment**: the first training window starts at `trim_start_s = -0.95 s` relative to event 781 (CF onset), containing exactly 475 samples of cue and 25 samples of feedback. This replicates the exact initial ring buffer transient that the online classifier sees at runtime.
 5. **CSP** (`n_components=4`, `reg='ledoit_wolf'`, `log=True`) on `SELECTED_CHANNELS` subset per band
@@ -126,6 +126,47 @@ The notebook trains CSP + sLDA from calibration GDF files and saves models consu
 9. **Platt Calibration Fitting**: Fit an unbiased 1D Logistic Regression on the out-of-fold CV test scores (`all_scores`) to calculate unbiased calibration coefficients (`platt_a` and `platt_b`) and avoid overfitting.
 10. **Fold Sigma Monitoring**: A critical check is run on the cross-validation fold variance. If the fold standard deviation exceeds 8% (`std_acc > 0.08`), the notebook prints a warning recommending to reduce `N_CSP_COMPONENTS` to `2` to stabilize feature learning and halve feature dimensionality.
 11. Train final model on all data using the stable feature set, save CSP yaml + sLDA yaml.
+12. **Save figures** to `<gdf_dir>/images/<subject>_<paradigm>_<name>.png` — 13 PNG files covering: grid-search heatmap, CV and all-data ROC/calibration/confusion, training window density, per-CSP-component variance, LDA weights, CSP activation topomaps, scalp projections, feature heatmap, ERD/ERS topomaps, channel contribution bar chart.
+13. **Save `_training_features.mat`** alongside each GDF — used by `validate_features.m` (see §5a). Saved fields:
+
+| Field | Shape | Description |
+|-------|-------|-------------|
+| `X_pre_csp` | `[N_win, N_BANDS, N_SEL_CH]` | Mean power per channel before CSP (ring buffer output) |
+| `X_csp_out` | `[N_win, N_BANDS, N_COMP]` | Mean power per CSP component, no log |
+| `X_csp_log` | `[N_win, N_BANDS, N_COMP]` | `log(mean power)` = sLDA input |
+| `csp_matrices` | `[N_BANDS, N_COMP, N_SEL_CH]` | CSP filter matrices |
+| `selected_channels` | `[N_SEL_CH]` | Channel names used for CSP |
+| `selected_feature_indices` | `[K]` | 0-based band-major indices of sLDA-kept features |
+| `bands` | `[N_BANDS, 2]` | `[lo, hi]` Hz per band |
+| `j_in_trial` | `[N_win]` | 0-based window index within trial |
+| `trial_idx` | `[N_win]` | 0-based trial index in file |
+| `n_channels` | scalar | Python's `N_CHANNELS` — used by `validate_features.m` to strip BIOSIG's extra channels so the CAR reference matches |
+| `exclude_channels` | `[N_EXCL]` | Python's `EXCLUDE_CHANNELS` (`['Fp1','Fp2']`) — fallback for `validate_features.m` when the companion YAML has no `CarCfg` (e.g. calibration recordings) |
+| `freq`, `chunk_size`, `window_size` | scalar | Signal parameters |
+| `n_csp_comp`, `n_bands` | scalar | Shape metadata |
+| `gdf_path` | string | Source GDF path |
+
+### §5a. Validation script: `create_slda/validate_features.m`
+
+Stage-by-stage comparison of Python (notebook) vs MATLAB (`apply_processing` from `analysis_bci/matlab_simulation`) on the same calibration GDF. Produces three comparison figures — each row shows Python vs MATLAB overlaid (left) and `|diff|` with `max` annotated (right) — for a single representative trial:
+
+| Figure | Content | Expected MAE |
+|--------|---------|-------------|
+| **Fig 1** | Pre-CSP ring-buffer power per band, one channel, one trial | ~5×10⁻² |
+| **Fig 2** | Post-CSP linear power (sLDA-selected features, ≤8) | ~7.5×10⁻³ |
+| **Fig 3** | log(post-CSP power) = sLDA input (same features) | ~1.4×10⁻² |
+
+The residual MAE is an inherent consequence of the **chunk-alignment offset**: Python extracts windows aligned to the CF onset sample, while MATLAB's ring buffer is aligned to the nearest chunk boundary. For `chunk_size = 25`, the offset ranges from 0 to 12 samples. Both sides use ba-form `butter + lfilter / filter` with zero ICs, so the filter form is no longer a source of error.
+
+**CAR fallback**: `validate_features.m` loads the companion YAML (same directory as the GDF for evaluation recordings; `../parameters/` sibling folder for calibration recordings). If the YAML has no `CarCfg`, the script falls back to `py.exclude_channels` from the `.mat`. Always re-run Cell 10 of the notebook before running `validate_features` on a new GDF to ensure the `.mat` carries the latest `exclude_channels`.
+
+If Stage 1 MAE >> 0.1 → CAR mismatch (regenerate `.mat` with Cell 10). If Stage 1 MAE is small but Stage 3 MAE is large → CSP matrices differ.
+
+Run:
+```matlab
+cd /home/paolo/bci_vr_ws/src/slda_bci/create_slda
+validate_features   % GUI file picker → _training_features.mat
+```
 
 ### Key parameters (top of notebook)
 
